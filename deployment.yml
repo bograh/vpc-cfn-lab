@@ -1,4 +1,4 @@
-template-file-path: ./vpc-cloudformation.yaml
+template-file-path: ./template.yaml
 stack-name: vpc-cloudformation-stack
 parameters: {}
 tags:
