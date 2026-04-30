@@ -1,0 +1,711 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Highly Available Multi-AZ VPC with public/private subnets, dual NAT Gateways,
+  Apache web tier, and SSM-managed EC2 instances. No SSH access permitted.
+  Author: Bernard Ograh | Lab: Securely deploying resources in a VPC using cfn LAB
+
+# ============================================================
+# METADATA — Groups parameters in the CloudFormation console
+# ============================================================
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - VpcCidr
+          - PublicSubnetACidr
+          - PublicSubnetBCidr
+          - PrivateSubnetACidr
+          - PrivateSubnetBCidr
+    ParameterLabels:
+      VpcCidr:
+        default: "VPC CIDR Block"
+      PublicSubnetACidr:
+        default: "Public Subnet A CIDR (us-east-1a)"
+      PublicSubnetBCidr:
+        default: "Public Subnet B CIDR (us-east-1b)"
+      PrivateSubnetACidr:
+        default: "Private Subnet A CIDR (us-east-1a)"
+      PrivateSubnetBCidr:
+        default: "Private Subnet B CIDR (us-east-1b)"
+
+# ============================================================
+# PARAMETERS — CIDR blocks can be overridden at deploy time
+# ============================================================
+Parameters:
+
+  VpcCidr:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: CIDR block for the VPC
+
+  PublicSubnetACidr:
+    Type: String
+    Default: "10.0.1.0/24"
+    Description: CIDR for Public Subnet A (us-east-1a)
+
+  PublicSubnetBCidr:
+    Type: String
+    Default: "10.0.2.0/24"
+    Description: CIDR for Public Subnet B (us-east-1b)
+
+  PrivateSubnetACidr:
+    Type: String
+    Default: "10.0.3.0/24"
+    Description: CIDR for Private Subnet A (us-east-1a)
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: "10.0.4.0/24"
+    Description: CIDR for Private Subnet B (us-east-1b)
+
+
+Resources:
+
+  # ============================================================
+  # SECTION 1: NETWORKING
+  # ============================================================
+
+  # ── VPC ──────────────────────────────────────────────────────
+  # EnableDnsSupport + EnableDnsHostnames MUST be true so that
+  # the SSM agent can resolve AWS service endpoints (ssm, ec2messages,
+  # ssmmessages). Without these, Session Manager won't work.
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: vpc-lab-VPC
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── INTERNET GATEWAY ─────────────────────────────────────────
+  # Provides two-way internet access for resources in public subnets.
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: vpc-lab-IGW
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # Attaches the IGW to the VPC. Resources that DependsOn internet
+  # access (EIPs, routes to IGW) must DependsOn this attachment.
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # ── PUBLIC SUBNETS ────────────────────────────────────────────
+  # MapPublicIpOnLaunch: true auto-assigns a public IP to every
+  # instance launched in these subnets.
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PublicSubnet-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PublicSubnet-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── PRIVATE SUBNETS ───────────────────────────────────────────
+  # MapPublicIpOnLaunch: false — no public IPs assigned.
+  # Instances here reach the internet only through NAT Gateways.
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PrivateSubnet-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PrivateSubnet-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── ELASTIC IPs FOR NAT GATEWAYS ─────────────────────────────
+  # DependsOn IGWAttachment ensures the VPC has a live internet
+  # connection before the EIPs are allocated.
+  EIPA:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: vpc-lab-EIP-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  EIPB:
+    Type: AWS::EC2::EIP
+    DependsOn: IGWAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: vpc-lab-EIP-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── NAT GATEWAYS (one per AZ) ─────────────────────────────────
+  # Each NAT Gateway is placed in a PUBLIC subnet so it can reach
+  # the internet via the IGW. Private subnets then route through
+  # their AZ-local NAT Gateway — no cross-AZ dependency.
+  NATGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - Key: Name
+          Value: vpc-lab-NATGateway-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  NATGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - Key: Name
+          Value: vpc-lab-NATGateway-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── PUBLIC ROUTE TABLES ───────────────────────────────────────
+  # Both public subnets: 0.0.0.0/0 → Internet Gateway (direct internet)
+  PublicRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PublicRT-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # DependsOn IGWAttachment required — cannot add an IGW route before
+  # the IGW is attached to the VPC.
+  PublicRouteA:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTableA
+
+  PublicRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PublicRT-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  PublicRouteB:
+    Type: AWS::EC2::Route
+    DependsOn: IGWAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTableB
+
+  # ── PRIVATE ROUTE TABLES ──────────────────────────────────────
+  # AZ-A private subnet: 0.0.0.0/0 → NATGatewayA (AZ-local, no cross-AZ)
+  # AZ-B private subnet: 0.0.0.0/0 → NATGatewayB (AZ-local, no cross-AZ)
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PrivateRT-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  PrivateRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayA
+
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTableA
+
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: vpc-lab-PrivateRT-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  PrivateRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayB
+
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTableB
+
+  # ============================================================
+  # SECTION 2: IAM
+  # EC2SSMRole grants instances the minimum permissions to register
+  # with AWS SSM and accept Session Manager connections.
+  # No SSH keys are used anywhere in this stack.
+  # ============================================================
+
+  EC2SSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: vpc-lab-EC2SSMRole
+      Description: Allows EC2 instances to register with SSM for Session Manager access
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: vpc-lab-EC2SSMRole
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # Instance profiles wrap an IAM role for attachment to EC2 instances.
+  EC2SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: vpc-lab-EC2SSMInstanceProfile
+      Roles:
+        - !Ref EC2SSMRole
+
+  # ============================================================
+  # SECTION 3: SECURITY GROUPS
+  # Principle of least privilege — only the ports required for
+  # the lab are open. No inbound SSH (port 22) on any group.
+  # ============================================================
+
+  # ── WebServerSG: attached to public EC2 instances ────────────
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: vpc-lab-WebServerSG
+      GroupDescription: >
+        Public web server SG. HTTP from internet + ICMP from VPC only.
+        No SSH permitted. Managed via SSM Session Manager.
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # HTTP — allows browser access to the Apache web page
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access from the internet
+        # ICMP — allows ping from other instances within the VPC for validation
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref VpcCidr
+          Description: ICMP ping from within VPC for connectivity validation
+      SecurityGroupEgress:
+        # All outbound allowed — needed for SSM agent, yum updates, and IGW egress
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic permitted
+      Tags:
+        - Key: Name
+          Value: vpc-lab-WebServerSG
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ── AppServerSG: attached to private EC2 instances ───────────
+  AppServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: vpc-lab-AppServerSG
+      GroupDescription: >
+        Private app server SG. ICMP from VPC only — no inbound TCP from internet.
+        Outbound via NAT Gateway for SSM agent and OS updates. No SSH permitted.
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        # ICMP only — allows ping from public/private instances within VPC
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref VpcCidr
+          Description: ICMP ping from within VPC for connectivity validation
+      SecurityGroupEgress:
+        # All outbound allowed — routes through NAT Gateway for SSM and updates
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic permitted (exits via NAT Gateway)
+      Tags:
+        - Key: Name
+          Value: vpc-lab-AppServerSG
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+
+  # ============================================================
+  # SECTION 4: COMPUTE
+  # AMI: Dynamic SSM Parameter Store lookup — resolves the latest
+  # Amazon Linux 2 AMI in us-east-1 automatically at deploy time.
+  # No KeyName property — SSH access is intentionally disabled.
+  # ============================================================
+
+  # ── PUBLIC WEB TIER ──────────────────────────────────────────
+  # Apache is installed and started via User Data.
+  # The webpage displays the student name and lab name.
+  # YAML heredoc note: the 'HTMLEOF' end-marker is indented 10 spaces
+  # in the YAML source; the YAML parser strips that indentation when
+  # building the script, so bash sees it at column 0 as required.
+  WebServerA:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref WebServerSG
+      IamInstanceProfile: !Ref EC2SSMInstanceProfile
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          cat > /var/www/html/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>VPC Lab</title>
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; margin-top: 80px; background: #f5f5f5; }
+                h1   { color: #232f3e; font-size: 2.2em; }
+                h2   { color: #ff9900; font-size: 1.4em; }
+                p    { color: #666; font-size: 1em; }
+              </style>
+            </head>
+            <body>
+              <h1>Bernard Ograh</h1>
+              <h2>Securely deploying resources in a VPC using cfn LAB</h2>
+              <p>Web Server A &mdash; us-east-1a</p>
+            </body>
+          </html>
+          HTMLEOF
+      Tags:
+        - Key: Name
+          Value: vpc-lab-WebServer-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+        - Key: Tier
+          Value: Public
+
+  WebServerB:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      SubnetId: !Ref PublicSubnetB
+      SecurityGroupIds:
+        - !Ref WebServerSG
+      IamInstanceProfile: !Ref EC2SSMInstanceProfile
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          cat > /var/www/html/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>VPC Lab</title>
+              <style>
+                body { font-family: Arial, sans-serif; text-align: center; margin-top: 80px; background: #f5f5f5; }
+                h1   { color: #232f3e; font-size: 2.2em; }
+                h2   { color: #ff9900; font-size: 1.4em; }
+                p    { color: #666; font-size: 1em; }
+              </style>
+            </head>
+            <body>
+              <h1>Bernard Ograh</h1>
+              <h2>Securely deploying resources in a VPC using cfn LAB</h2>
+              <p>Web Server B &mdash; us-east-1b</p>
+            </body>
+          </html>
+          HTMLEOF
+      Tags:
+        - Key: Name
+          Value: vpc-lab-WebServer-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+        - Key: Tier
+          Value: Public
+
+  # ── PRIVATE APP TIER ─────────────────────────────────────────
+  # No UserData — vanilla Amazon Linux 2.
+  # No public IP — outbound internet only via NAT Gateway.
+  AppServerA:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      SubnetId: !Ref PrivateSubnetA
+      SecurityGroupIds:
+        - !Ref AppServerSG
+      IamInstanceProfile: !Ref EC2SSMInstanceProfile
+      Tags:
+        - Key: Name
+          Value: vpc-lab-AppServer-A
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+        - Key: Tier
+          Value: Private
+
+  AppServerB:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      SubnetId: !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref AppServerSG
+      IamInstanceProfile: !Ref EC2SSMInstanceProfile
+      Tags:
+        - Key: Name
+          Value: vpc-lab-AppServer-B
+        - Key: Project
+          Value: VPC-CFN-Lab
+        - Key: Environment
+          Value: Lab
+        - Key: Owner
+          Value: Bernard Ograh
+        - Key: Tier
+          Value: Private
+
+# ============================================================
+# SECTION 5: OUTPUTS
+# Key resource IDs and IPs surfaced in the CloudFormation console
+# and accessible via: aws cloudformation describe-stacks
+# ============================================================
+Outputs:
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCId"
+
+  PublicSubnetAId:
+    Description: Public Subnet A ID (us-east-1a)
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetAId"
+
+  PublicSubnetBId:
+    Description: Public Subnet B ID (us-east-1b)
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetBId"
+
+  PrivateSubnetAId:
+    Description: Private Subnet A ID (us-east-1a)
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetAId"
+
+  PrivateSubnetBId:
+    Description: Private Subnet B ID (us-east-1b)
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetBId"
+
+  WebServerAPublicIP:
+    Description: "Public IP of WebServer-A — open http://<IP> in browser to validate"
+    Value: !GetAtt WebServerA.PublicIp
+    Export:
+      Name: !Sub "${AWS::StackName}-WebServerAPublicIP"
+
+  WebServerBPublicIP:
+    Description: "Public IP of WebServer-B — open http://<IP> in browser to validate"
+    Value: !GetAtt WebServerB.PublicIp
+    Export:
+      Name: !Sub "${AWS::StackName}-WebServerBPublicIP"
+
+  WebServerAPrivateIP:
+    Description: Private IP of WebServer-A — use for ping tests from private instances
+    Value: !GetAtt WebServerA.PrivateIp
+
+  WebServerBPrivateIP:
+    Description: Private IP of WebServer-B — use for ping tests from private instances
+    Value: !GetAtt WebServerB.PrivateIp
+
+  AppServerAInstanceId:
+    Description: Instance ID of AppServer-A — use in Session Manager to connect
+    Value: !Ref AppServerA
+    Export:
+      Name: !Sub "${AWS::StackName}-AppServerAInstanceId"
+
+  AppServerBInstanceId:
+    Description: Instance ID of AppServer-B — use in Session Manager to connect
+    Value: !Ref AppServerB
+    Export:
+      Name: !Sub "${AWS::StackName}-AppServerBInstanceId"
+
+  AppServerAPrivateIP:
+    Description: Private IP of AppServer-A — use for ping tests from public instances
+    Value: !GetAtt AppServerA.PrivateIp
+
+  AppServerBPrivateIP:
+    Description: Private IP of AppServer-B — use for ping tests from public instances
+    Value: !GetAtt AppServerB.PrivateIp
