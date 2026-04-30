@@ -1,9 +1,7 @@
 # Securely Deploying Resources in a VPC using CloudFormation
 
 **Author:** Bernard Ograh
-
 **Lab:** Securely deploying resources in a VPC using cfn LAB
-
 **Region:** us-east-1
 
 ## Architecture
