@@ -418,9 +418,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: vpc-lab-WebServerSG
-      GroupDescription: >
-        Public web server SG. HTTP from internet + ICMP from VPC only.
-        No SSH permitted. Managed via SSM Session Manager.
+      GroupDescription: "Public web server SG. HTTP from internet + ICMP from VPC only. No SSH permitted. Managed via SSM Session Manager."
       VpcId: !Ref VPC
       SecurityGroupIngress:
         # HTTP — allows browser access to the Apache web page
@@ -455,9 +453,7 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupName: vpc-lab-AppServerSG
-      GroupDescription: >
-        Private app server SG. ICMP from VPC only - no inbound TCP from internet.
-        Outbound via NAT Gateway for SSM agent and OS updates. No SSH permitted.
+      GroupDescription: "Private app server SG. ICMP from VPC only - no inbound TCP from internet. Outbound via NAT Gateway for SSM agent and OS updates. No SSH permitted."
       VpcId: !Ref VPC
       SecurityGroupIngress:
         # ICMP only — allows ping from public/private instances within VPC
