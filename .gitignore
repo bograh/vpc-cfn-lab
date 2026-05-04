@@ -1,0 +1,8 @@
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# AWS tooling
+.aws-sam/
+cdk.out/
+samconfig.toml
