@@ -66,8 +66,4 @@ aws cloudformation delete-stack \
 ```
 
 > **Cost note:** NAT Gateways and Elastic IPs incur hourly charges. Delete the stack when the lab is complete.
-<<<<<<< HEAD
 > 
-=======
-> 
->>>>>>> 41966a855e59b3a388089b95521ade068b903d6d
