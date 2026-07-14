@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Highly Available Multi-AZ VPC with public/private subnets, dual NAT Gateways,
   Apache web tier, and SSM-managed EC2 instances. No SSH access permitted.
@@ -22,19 +22,18 @@ Metadata:
       VpcCidr:
         default: "VPC CIDR Block"
       PublicSubnetACidr:
-        default: "Public Subnet A CIDR (eu-west-1a)"
+        default: "Public Subnet A CIDR (eu-central-1a)"
       PublicSubnetBCidr:
-        default: "Public Subnet B CIDR (eu-west-1b)"
+        default: "Public Subnet B CIDR (eu-central-1b)"
       PrivateSubnetACidr:
-        default: "Private Subnet A CIDR (eu-west-1a)"
+        default: "Private Subnet A CIDR (eu-central-1a)"
       PrivateSubnetBCidr:
-        default: "Private Subnet B CIDR (eu-west-1b)"
+        default: "Private Subnet B CIDR (eu-central-1b)"
 
 # ============================================================
 # PARAMETERS — CIDR blocks can be overridden at deploy time
 # ============================================================
 Parameters:
-
   VpcCidr:
     Type: String
     Default: "10.0.0.0/16"
@@ -43,26 +42,24 @@ Parameters:
   PublicSubnetACidr:
     Type: String
     Default: "10.0.1.0/24"
-    Description: CIDR for Public Subnet A (eu-west-1a)
+    Description: CIDR for Public Subnet A (eu-central-1a)
 
   PublicSubnetBCidr:
     Type: String
     Default: "10.0.2.0/24"
-    Description: CIDR for Public Subnet B (eu-west-1b)
+    Description: CIDR for Public Subnet B (eu-central-1b)
 
   PrivateSubnetACidr:
     Type: String
     Default: "10.0.3.0/24"
-    Description: CIDR for Private Subnet A (eu-west-1a)
+    Description: CIDR for Private Subnet A (eu-central-1a)
 
   PrivateSubnetBCidr:
     Type: String
     Default: "10.0.4.0/24"
-    Description: CIDR for Private Subnet B (eu-west-1b)
-
+    Description: CIDR for Private Subnet B (eu-central-1b)
 
 Resources:
-
   # ============================================================
   # SECTION 1: NETWORKING
   # ============================================================
@@ -118,7 +115,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PublicSubnetACidr
-      AvailabilityZone: eu-west-1a
+      AvailabilityZone: eu-central-1a
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -135,7 +132,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PublicSubnetBCidr
-      AvailabilityZone: eu-west-1b
+      AvailabilityZone: eu-central-1b
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -155,7 +152,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnetACidr
-      AvailabilityZone: eu-west-1a
+      AvailabilityZone: eu-central-1a
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
@@ -172,7 +169,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnetBCidr
-      AvailabilityZone: eu-west-1b
+      AvailabilityZone: eu-central-1b
       MapPublicIpOnLaunch: false
       Tags:
         - Key: Name
@@ -381,7 +378,7 @@ Resources:
       RoleName: vpc-lab-EC2SSMRole
       Description: Allows EC2 instances to register with SSM for Session Manager access
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -480,7 +477,7 @@ Resources:
   # ============================================================
   # SECTION 4: COMPUTE
   # AMI: Dynamic SSM Parameter Store lookup — resolves the latest
-  # Amazon Linux 2 AMI in eu-west-1 automatically at deploy time.
+  # Amazon Linux 2 AMI in eu-central-1 automatically at deploy time.
   # No KeyName property — SSH access is intentionally disabled.
   # ============================================================
 
@@ -494,7 +491,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
       SubnetId: !Ref PublicSubnetA
       SecurityGroupIds:
         - !Ref WebServerSG
@@ -521,7 +518,7 @@ Resources:
             <body>
               <h1>Bernard Ograh</h1>
               <h2>Securely deploying resources in a VPC using cfn LAB</h2>
-              <p>Web Server A &mdash; eu-west-1a</p>
+              <p>Web Server A &mdash; eu-central-1a</p>
             </body>
           </html>
           HTMLEOF
@@ -541,7 +538,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
       SubnetId: !Ref PublicSubnetB
       SecurityGroupIds:
         - !Ref WebServerSG
@@ -568,7 +565,7 @@ Resources:
             <body>
               <h1>Bernard Ograh</h1>
               <h2>Securely deploying resources in a VPC using cfn LAB</h2>
-              <p>Web Server B &mdash; eu-west-1b</p>
+              <p>Web Server B &mdash; eu-central-1b</p>
             </body>
           </html>
           HTMLEOF
@@ -591,7 +588,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
       SubnetId: !Ref PrivateSubnetA
       SecurityGroupIds:
         - !Ref AppServerSG
@@ -612,7 +609,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.micro
-      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}'
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
       SubnetId: !Ref PrivateSubnetB
       SecurityGroupIds:
         - !Ref AppServerSG
@@ -635,7 +632,6 @@ Resources:
 # and accessible via: aws cloudformation describe-stacks
 # ============================================================
 Outputs:
-
   VPCId:
     Description: VPC ID
     Value: !Ref VPC
@@ -643,25 +639,25 @@ Outputs:
       Name: !Sub "${AWS::StackName}-VPCId"
 
   PublicSubnetAId:
-    Description: Public Subnet A ID (eu-west-1a)
+    Description: Public Subnet A ID (eu-central-1a)
     Value: !Ref PublicSubnetA
     Export:
       Name: !Sub "${AWS::StackName}-PublicSubnetAId"
 
   PublicSubnetBId:
-    Description: Public Subnet B ID (eu-west-1b)
+    Description: Public Subnet B ID (eu-central-1b)
     Value: !Ref PublicSubnetB
     Export:
       Name: !Sub "${AWS::StackName}-PublicSubnetBId"
 
   PrivateSubnetAId:
-    Description: Private Subnet A ID (eu-west-1a)
+    Description: Private Subnet A ID (eu-central-1a)
     Value: !Ref PrivateSubnetA
     Export:
       Name: !Sub "${AWS::StackName}-PrivateSubnetAId"
 
   PrivateSubnetBId:
-    Description: Private Subnet B ID (eu-west-1b)
+    Description: Private Subnet B ID (eu-central-1b)
     Value: !Ref PrivateSubnetB
     Export:
       Name: !Sub "${AWS::StackName}-PrivateSubnetBId"
