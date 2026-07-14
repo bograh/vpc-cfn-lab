@@ -1,6 +1,3 @@
-template-file-path: ./template.yaml
-stack-name: vpc-cloudformation-stack
+template-file-path: template.yaml
 parameters: {}
-tags:
-  Project: vpc-cloudformation-lab
-  ManagedBy: GitSync
+tags: {}
